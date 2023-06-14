@@ -5,7 +5,7 @@
   "metadata.owner.job-name": "Fullstack Developer",
   "pages.landing.hero-section.title": "Developer creating smooth, thoughtful user interfaces",
   "pages.landing.hero-section.subtitle": "Hi there! I'm Baboo, a Fullstack Developer based in Paris ❤️. On my blog, you'll find my thoughts and insights on fullstack development, as well as updates on the latest industry trends and personal projects. Follow along for helpful tips and resources for fellow fullstack developers.",
-  "pages.landing.hero-section.current-job": "I’m currently working at <a href='https://adeliom.com' class='link--external' target='_blank' rel='noreferrer'>Atelier OGRE</a> where we’re building modern and intuitive websites.",
+  "pages.landing.hero-section.current-job": "I’m currently working at <a href='https://atelierogre.org' class='link--external' target='_blank' rel='noreferrer'>Atelier OGRE</a> where we’re building a serious game to help understand the challenges of the energy transition.",
   "tooltips.github.my-account": "My GitHub account",
   "tooltips.linkedin.my-account": "My LinkedIn account"
 }
