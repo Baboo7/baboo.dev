@@ -22,3 +22,7 @@
     padding-bottom: theme('spacing.20');
   }
 }
+
+.link--external {
+  text-decoration: underline;
+}

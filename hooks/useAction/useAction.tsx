@@ -30,15 +30,6 @@ export const useAction = (articles: ArticleMetadata[]) => {
       icon: <Icon icon={DocumentDuplicateIcon} size="md" />,
       perform: () => navigator.clipboard.writeText(window.location.href),
     },
-    {
-      id: 'email',
-      name: 'Send Email',
-      shortcut: ['e'],
-      keywords: 'send email',
-      section: 'General',
-      icon: <Icon icon={EnvelopeIcon} size="md" />,
-      perform: () => window.open(`mailto:${socials.mail}`, '_blank'),
-    },
   ];
 
   const navigationActions: Action[] = [
@@ -150,15 +141,6 @@ export const useAction = (articles: ArticleMetadata[]) => {
       section: 'Follow',
       icon: <IconLinkedin className="h-4 w-4" />,
       perform: () => window.open(socials.linkedin, '_blank'),
-    },
-    {
-      id: 'twitter',
-      name: 'Twitter',
-      shortcut: ['f', 't'],
-      keywords: 'follow twitter',
-      section: 'Follow',
-      icon: <IconTwitter className="h-4 w-4" />,
-      perform: () => window.open(socials.twitter, '_blank'),
     },
   ];
 

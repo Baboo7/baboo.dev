@@ -1,9 +1,7 @@
 export const useSocial = () => {
   const socials = {
-    mail: 's.bellucci57@gmail.com',
-    github: 'https://github.com/SimonBellucci',
-    linkedin: 'https://linkedin.com/in/simonbellucci/',
-    twitter: 'https://twitter.com/SimonBellucci',
+    github: 'https://github.com/Baboo7',
+    linkedin: 'https://www.linkedin.com/in/baptistestuder',
   };
 
   return {

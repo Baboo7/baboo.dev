@@ -1,10 +1,13 @@
 import { ComponentProps, FunctionComponent } from 'react';
 import Link from 'next/link';
 import { cx } from 'class-variance-authority';
+import { useI18n } from '@i18n';
 
 export const Logo: FunctionComponent<ComponentProps<'svg'>> = ({ className }) => {
+  const { t } = useI18n();
+
   return (
-    <Link href="/" aria-label="Simon Bellucci's logo">
+    <Link href="/" aria-label={`${t('metadata.owner.name')}'s logo`}>
       <svg
         fill="none"
         xmlns="http://www.w3.org/2000/svg"

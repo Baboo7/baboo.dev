@@ -1,3 +1,4 @@
+import { t } from '@i18n';
 import { ImageResponse, NextRequest } from 'next/server';
 
 export const config = {
@@ -23,10 +24,9 @@ const OpenGraph = async (request: NextRequest) => {
 
     const { searchParams } = new URL(request.url);
 
-    const title = searchParams.get('title') || 'Simon Bellucci - Front-End Developer';
-    const description =
-      searchParams.get('description') ||
-      "Hi there! I'm Simon Bellucci, a Front-End Developer based in Strasbourg 🥨. On my blog, you'll find my thoughts and insights on front-end development, as well as updates on the latest industry trends and personal projects.";
+    const title =
+      searchParams.get('title') || `${t('metadata.owner.name')} - ${t('metadata.owner.job-name')}`;
+    const description = searchParams.get('description') || t('pages.landing.hero-section.subtitle');
 
     return new ImageResponse(
       (
@@ -59,7 +59,7 @@ const OpenGraph = async (request: NextRequest) => {
               <div tw="text-5xl font-semibold">{title}</div>
               <div tw="text-xl mt-5 font-normal text-gray-800">{description}</div>
             </div>
-            <div tw="text-base mt-8 text-gray-800">simonbellucci.dev</div>
+            <div tw="text-base mt-8 text-gray-800">{t('metadata.app.domain-name')}</div>
           </div>
         </div>
       ),

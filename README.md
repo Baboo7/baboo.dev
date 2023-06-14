@@ -1,7 +1,4 @@
-
-# simonbellucci.dev
-
-Welcome to my personal website, simonbellucci.dev! Here I share my knowledge, insights, and experiences as a front-end developer.
+# baboo.dev
 
 ## Tech Stack
 
@@ -16,11 +13,12 @@ Welcome to my personal website, simonbellucci.dev! Here I share my knowledge, in
 **Analytics:** [Vercel Analytics](https://vercel.com/analytics)
 
 ## Running locally
+
 To run this website locally, you will need to have Node.js 16.13+ installed on your machine.
 
 ```bash
-git clone https://github.com/SimonBellucci/simonbellucci.dev.git
-cd simonbellucci.dev
+git clone https://github.com/Baboo7/baboo.dev.git
+cd baboo.dev
 npm install
 npm run dev
 ```

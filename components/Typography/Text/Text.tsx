@@ -14,10 +14,7 @@ export const Text: FunctionComponent<TextProps> = ({
   ...props
 }) => {
   return (
-    <TextTag
-      className={cx(textStyles({ size, weight, center, color }), className)}
-      {...props}
-    >
+    <TextTag className={cx(textStyles({ size, weight, center, color }), className)} {...props}>
       {children}
     </TextTag>
   );
