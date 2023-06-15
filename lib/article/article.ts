@@ -56,7 +56,10 @@ export const getArticlesMetadata = (limit?: number): ArticleMetadata[] => {
   const files = fs.readdirSync(path.join(process.cwd(), rootFolder, articlesFolder));
   const markdownArticles = files.filter(file => file.endsWith(markdownExtension));
 
-  return markdownArticles.slice(...(limit ? [0] : [0, 4])).map(fileName => {
-    return getArticleMetadata(fileName.replace(markdownExtension, ''))!;
-  });
+  return markdownArticles
+    .map(fileName => {
+      return getArticleMetadata(fileName.replace(markdownExtension, ''))!;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(...(limit ? [0, limit] : [0]));
 };
