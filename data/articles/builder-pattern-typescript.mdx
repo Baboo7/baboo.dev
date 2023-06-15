@@ -1,0 +1,422 @@
+---
+title: 'Builder Pattern : Une Version Typescript Compatible'
+description: Créons main dans la main une version Typescript compatible du Builder Pattern.
+date: '2021-12-30'
+update: '2021-12-30'
+categories: ['design-pattern', 'typescript']
+slug: builder-pattern-typescript
+---
+
+Ça fait maintenant un bon bout de temps que j'utilise NestJs pour des projets persos et pros et je dois dire que je suis assez conquis. Notamment son système d'injection de dépendance chipé à Angular qui simplifie l'architecture de l'application et la mise en place des tests.
+
+Le framework étant très orienté autour de la POO et du [DDD](https://martinfowler.com/bliki/DomainDrivenDesign.html), il y a cependant une partie que je n'arrivais pas à craquer : la création rapide et pratique des _Domain Models_.
+
+La meilleure solution que j'avais trouvée était une adaptation du _Simple Factory Pattern_ qui même si elle fonctionnait bien, me laissant cet arrière goût de _Mouais..._
+
+## Note au passage
+
+Le code est en libre accès sur [github](https://github.com/Baboo7/builder-pattern-2#readme) et disponible sur [npm](https://www.npmjs.com/package/builder-pattern-2) sous le nom `builder-pattern-2` :
+
+```bash
+npm i builder-pattern-2
+# ou
+yarn add builder-pattern-2
+```
+
+## Plantons le décors
+
+Pour cet article, partons du principe qu'on développe une entreprise de Serviteurs On Demand. Nos clients sont des personnes qui ont un problème précis comme l'incapacité à ouvrir un pot de cornichons. Ils se rendent sur notre plateforme, commandent un serviteur qui leur vient en aide et disparait instantanément une fois la tâche accomplie. Appelons ces serviteurs des [Mr Meeseeks](https://rickandmorty.fandom.com/wiki/Mr._Meeseeks).
+
+<Image src="/images/articles/mr-meeseeks.gif" width={1200} height={630} className="mb-9" />
+
+_Mr Meeseeks, toujours prêt à se payer une bonne tranche en aidant son prochain._
+
+Voilà le _Domain Model_ de notre Mr Meeseeks :
+
+```typescript
+class MrMeeseeks {
+  constructor(private readonly goal: string, private readonly lifespan: number = Infinity) {}
+
+  public getGoal(): string {
+    return this.goal;
+  }
+
+  public getLifespan(): number {
+    return this.lifespan;
+  }
+}
+```
+
+Il a un objectif à atteindre (`goal`) et une durée de vie maximale (`lifespan`) avant d'avoir le droit au repos.
+
+## Le Simple Factory Pattern à l'Arrière Goût de Mouais
+
+Afin de créer un Mr Meeseeks, jusqu'à maintenant j'aurais utilisé une adaptation du _Simple Factory Pattern_. Plutôt que de passer tous les paramètres du constructeur à la main, je passe par un object de configuration :
+
+```typescript
+interface CreateArgs {
+  goal: string;
+  lifespan?: number;
+}
+
+class MrMeeseeksSimpleFactory {
+  public static create(args: CreateArgs): MrMeeseeks {
+    return new MrMeeseeks(args.goal, args.lifespan);
+  }
+}
+```
+
+L'object de config est 1. extensible, 2. je n'ai pas à passer `undefined` aux paramètres optionnels qui ne m'intéressent pas et 3. je peux définir des valeurs par défaut pour les paramètres obligatoires. Par exemple, si les analytics de la boite nous permettent de nous apercevoir que l'ouverture de pots de cornichons est un véritable customer pain point, on peut potentiellement le mettre en _goal_ par défaut dans la factory (ça ne ferait pas nécessairement sens de le mettre en valeur par défaut dans le constructeur de la classe).
+
+Là où ça pêche c'est que je dois mettre à jour manuellement l'interface `CreateArgs` et l'implémentation de la méthode `create` à chaque fois que j'ajoute un paramètre au constructeur. Si j'oublie l'une des 2 étapes, ça ne fonctionne pas, ce qui alourdi considérablement la charge mentale liée à la modification d'un _Domain Model_. Pareil pour la création d'un _Domain Model_ et même davantage, puisque je dois implémenter la factory qui n'existe pas encore.
+
+Mon postulat c'est qu'il doit y avoir moyen de générer la factory automatiquement à partir d'un _Domain Model_ plutôt que de le faire à la main.
+
+## Le Builder Pattern à l'Élégance Fringante
+
+Comme j'étais insatisfait, j'ai commencé à regarder les solutions existantes à gauche à droite et je me suis souvenu du [décorateur `@Builder`](https://projectlombok.org/features/Builder) du package Java Lombok.
+
+Dans un monde plein de magie où javascript exécuterait du code java car ils ont leurs 4 premières lettres communes, le décorateur `@Builder` de Lombok donnerait le résultat suivant :
+
+```typescript
+@Builder
+class MrMeeseeks {
+  constructor(private readonly goal: string, private readonly lifespan: number = Infinity) {}
+
+  public getGoal(): string {
+    return this.goal;
+  }
+
+  public getLifespan(): number {
+    return this.lifespan;
+  }
+}
+
+const mr = MrMeeseeks.builder()
+  // Définition du goal.
+  .goal('Ouvrir pot de cornichons')
+  // Définition de la durée de vie.
+  // On lui met 24h max.
+  .lifespan(24)
+  // Construction du MrMeeseeks.
+  .build();
+
+// log : "Ouvrir pot de cornichons".
+console.log(mr.getGoal());
+```
+
+Le _Builder Pattern_ est élégant, pratique et lisible notamment grâce à sa _[Fluent API](https://en.wikipedia.org/wiki/Fluent_interface)_ qui permet de chaîner les méthodes du builder. De plus, il se plug simplement sur la classe qu'on veut rendre buildable sans autres formes d'intrusivité.
+
+De cette utilisation simple découlent des contraintes non triviales que le système doit respecter :
+
+- Génération automatique des méthodes du builder en fonction des paramètres du constructeur : le builder doit exposer la méthode `setLifespan` comme le constructeur prend le paramètre `lifespan`.
+- Auto-complétion des méthodes du builder avec typescript.
+- Inférence des types des méthodes du builder avec typescript : la méthode `setLifespan` doit prendre un `number` en paramètre et retourner un `Builder` de `MrMeeseeks`.
+- Pas de code boilerplate à ajouter dans la classe à rendre buildable : le système doit être le moins invasif possible pour se laisser la possibilité de changer l'implémentation du builder si on le souhaite.
+
+On va s'occuper de l'implémentation en 2 parties : dans un premier temps, on va s'occuper de générer le builder de façon automatique (javascript) et dans un second temps on implémentera le typage (typescript).
+
+## Génération du Builder
+
+Le builder sera une classe qui a pour attributs les paramètres du constructeur de la classe qu'il construit. Par exemple, pour créer un MrMeeseeks, on a doit passer 2 paramètres qui sont _goal_ et _lifespan_. Le builder d'un MrMeeseeks aura donc 2 attributs qui seront _goal_ et _lifespan_, dont la valeur sera définie par les méthodes _setGoal_ et _setLifespan_.
+
+Commençons simple et implémentons la fonction qui crée un builder à partir d'une classe. Le builder est une classe instantiable, donc la base de la fonction est :
+
+```typescript
+export const createBuilderClass = cls => {
+  const builder = function () {};
+
+  return builder;
+};
+```
+
+La première étape est de définir les attributs du builder. Pour ça il nous faut récupérer le nom des paramètres du constructeur de `cls`.
+
+En javascript, il est possible de récupérer le code d'une classe en la convertissant en string. C'est à la fois weird et très pratique puisqu'avec une regex on va pouvoir extraire la partie constructeur de la classe et ses paramètres :
+
+```typescript
+const CONSTRUCTOR_REGEX = /constructor\s*\((.*)\)/;
+const COMMENT_REGEX = /\/\*\*.*\*\//g;
+const SPACE_REGEX = /\s*/g;
+
+const extractConstructorParams = (cls): string[] =>
+  /** exécute la regex `CONSTRUCTOR_REGEX` 
+  sur le code source de la classe `cls` et 
+  récupère la string qui contient les 
+  paramètres du constructeur. */
+  CONSTRUCTOR_REGEX.exec(cls.toString())[1]
+    /** Supprime respectivement les 
+    commentaires et les espaces. */
+    .replace(COMMENT_REGEX, '')
+    .replace(SPACE_REGEX, '')
+    /** Sépare les paramètres les
+    uns des autres. */
+    .split(',')
+    /** Sépare le nom des paramètres
+    de leur valeur par défaut. */
+    .map(param => param.split('=')[0]);
+```
+
+En appliquant `extractConstructorParams` à la classe `MrMeeseeks`, on obtient le tableau de string `['goal', 'lifespan']`.
+
+On peut maintenant créer les attributs et setters du builder :
+
+```typescript
+const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.substring(1);
+
+const createBuilderClass = cls => {
+  const paramNames: string[] = extractConstructorParams(cls);
+
+  const builder = function () {
+    // Remet à zéro les attributs du builder.
+    this._reset = function () {
+      for (const param of paramNames) {
+        this[param] = undefined;
+      }
+    };
+
+    /** Crée un setter pour chaque paramètre 
+    du constructeur.
+    Le setter retourne `this` pour avoir
+    une fluent API. */
+    for (const param of paramNames) {
+      this[`set${capitalize(param)}`] = function (value) {
+        this[param] = value;
+        return this;
+      };
+    }
+
+    // Instancie la classe et remet à zéro le builder.
+    this.build = function () {
+      const values = [];
+      for (const param of paramNames) {
+        values.push(this[param]);
+      }
+
+      const instance = new cls(...values);
+      this._reset();
+
+      return instance;
+    };
+  };
+
+  return builder;
+};
+```
+
+Avec ça on obtient déjà un builder javascript fonctionnel.
+
+Un exemple d'utilisation :
+
+```javascript
+class MrMeeseeks {
+  constructor(goal, lifespan = Infinity) {}
+
+  getGoal() {
+    return this.goal;
+  }
+
+  getLifespan() {
+    return this.lifespan;
+  }
+}
+
+const MrMeeseeksBuilder = createBuilderClass(MrMeeseeks);
+
+const box = new MrMeeseeksBuilder();
+const mister = box.setGoal('Pot de cornichons').build();
+
+console.log(mister.getGoal()); // 'Pot de cornichons'
+console.log(mister.getLifespan()); // Infinity
+```
+
+Ici on n'a pas spécifié le `lifespan` de notre `MrMeeseeks` avec le builder qui pourtant vaut `Infinity`. Puisque l'attribut `lifespan` du builder vaut `undefined` par défaut, l'attribut de la classe prend la valeur par défaut définie par le constructeur.
+
+## Typage du Builder
+
+L'objectif est d'obtenir l'auto-complétion des méthodes du builder avec leur typage. Par exemple, si je fais appel au builder, je veux que la méthode `setGoal` me soit proposée et que je saches qu'elle prend en paramètre une `string` et retourne un `Builder` de `MrMeeseeks`.
+
+Typescript propose un ensemble d'`Utility Types` qui facilitent la manipulation des types.
+
+Un qui potentiellement nous intéresse est `ConstructorParameters`. Il extrait le type des paramètres du constructeur d'une classe :
+
+```typescript
+class MrMeeseeks {
+  constructor(private readonly goal: string, private readonly lifespan: number) {}
+}
+
+// [string, number]
+type CtorParams = ConstructorParameters<MrMeeseeks>;
+```
+
+C'est intéressant, on vient de récupérer les types des paramètres du constructeur mais ça s'arrête là parce que typescript ne permet pas de récupérer le nom des paramètres pour le moment.
+
+C'est ici que commence le compromis vers notre builder idéal.
+
+Puisque les noms des setters reposent sur le noms des paramètres du constructeur, une solution est de les répertorier dans une interface. Les clés seront les noms des paramètres et les valeurs leur type :
+
+```typescript
+// L'interface reflète les noms et types
+// des paramètres du constructeur.
+interface MrMeeseeksCtor {
+  goal: string;
+  lifespan: number;
+}
+
+class MrMeeseeks {
+  constructor(private readonly goal: string, private readonly lifespan: number) {}
+}
+```
+
+Et depuis typescript 4.1, la génération des noms des setters devient facile grâce au [Template Literal Types](https://www.typescriptlang.org/docs/handbook/2/template-literal-types.html). Ils permettent de créer des types string de manière programmatique à partir d'autres types string. Par exemple, le type string `"goal"` peut être utilisé pour créer le type string `"setGoal"` sans qu'on ait besoin de le créer à la main.
+
+La manipulation des types string en typescript fonctionne de la même manière qu'en javascript :
+
+```typescript
+/** Template Literal Type. 
+`SetterName` prend un type string en
+paramètre et retourne un nom de setter. 
+
+Ex : SetterName<'master'> = 'setMaster'. 
+ 
+Typescript fournit le type `Capitalize` 
+qui met la 1ère lettre d'un type string 
+en majuscule. */
+type SetterName<Key extends string> = `set${Capitalize<Key>}`;
+
+/** `SetterFunctions` prend en paramètre un type objet. 
+Les clés de l'object sont transformées en `SetterName`
+et le résultat sert de clé au type object généré.
+ 
+Puisque la propriété créée est un setter, la valeur
+associée à la clé correspond au typage du setter 
+qui s'appuie sur le type du paramètre du constructeur.
+
+Le type `Builder` retourné par le setter est 
+détaillé par la suite. */
+type SetterFunctions<T> = {
+  [K in keyof T as SetterName<string & K>]: (value: T[K]) => Builder<T>;
+};
+
+// Exemple d'utilisation :
+
+interface MrMeeseeksCtor {
+  goal: string;
+  lifespan: number;
+}
+
+/**
+  {
+    setGoal: (value: string) => Builder<MrMeeseeksCtor>;
+    setLifespan: (value: number) => Builder<MrMeeseeksCtor>;
+  }
+*/
+type Setters = SetterFunctions<MrMeeseeksCtor>;
+```
+
+Le plus gros du travail est fait. Il reste à définir le type `Builder` qui doit être constructible par l'opérateur `new` et exposer une méthode `build` :
+
+```typescript
+type SetterName<Key extends string> = `set${Capitalize<Key>}`;
+
+type SetterFunctions<T, TC> = {
+  [K in keyof TC as SetterName<string & K>]: (value: TC[K]) => Builder<T, TC>;
+};
+
+// Le type Ctor est constructible.
+type Ctor<T, TC> = new () => Builder<T, TC>;
+
+/** `Builder` prend 2 génériques en paramètres :
+- T : Le type retourné par la fonction `build`.
+  Ex : MrMeeseeks.
+- TC : Le type représentant les paramètres du
+constructeur.
+  Ex : MrMeeseeksCtor. 
+ 
+Ces 2 génériques sont passés aux types `Ctor` 
+et `SetterFunctions` car ces derniers font
+référence au type `Builder`. */
+export type Builder<T, TC> = Ctor<T, TC> &
+  SetterFunctions<T, TC> & {
+    build: () => T;
+  };
+```
+
+Tout ça mis bout à bout, la séquence suivante est valide du point de vue du typage :
+
+```typescript
+interface MrMeeseeksCtor {
+  goal: string;
+  lifespan: number;
+}
+
+class MrMeeseeks {
+  constructor(private readonly goal: string, private readonly lifespan: number = Infinity) {}
+
+  public getGoal() {
+    return this.goal;
+  }
+
+  public getLifespan() {
+    return this.lifespan;
+  }
+}
+
+const MrMeeseeksBuilder: Builder<MrMeeseeks, MrMeeseeksCtor>;
+const builder = new MrMeeseeksBuilder();
+
+const mr: MrMeeseeks = builder.setGoal('Ouvrir pot de C').setLifespan(12).build();
+
+console.log(mr.getGoal()); // 'Ouvrir pot de C'
+console.log(mr.getLifespan()); // Infinity
+```
+
+## Dernier Coup de Polish
+
+Dernière étape, il nous reste à typer la fonction qui génère le builder :
+
+```typescript
+const createBuilderClass = <T, TC>(cls): Builder<T, TC> => {
+  // ...
+
+  return builder as unknown as Builder<T, TC>;
+};
+```
+
+Nous voilà maintenant avec un builder 100% fonctionnel.
+
+## Épilogue
+
+Un dernier snippet de code pour la route histoire d'illustrer son utilisation :
+
+```typescript
+import { Builder, createBuilderClass } from './builder';
+
+interface MrMeeseeksCtor {
+  goal: string;
+  lifespan: number;
+}
+
+class MrMeeseeks {
+  constructor(private readonly goal: string, private readonly lifespan: number = Infinity) {}
+
+  public getGoal() {
+    return this.goal;
+  }
+
+  public getLifespan() {
+    return this.lifespan;
+  }
+}
+
+const MrMeeseeksBuilder: Builder<MrMeeseeks, MrMeeseeksCtor> = createBuilderClass<
+  MrMeeseeks,
+  MrMeeseeksCtor
+>(MrMeeseeks);
+const builder = new MrMeeseeksBuilder();
+
+const mr: MrMeeseeks = builder.setGoal('Ouvrir pot de C').setLifespan(12).build();
+
+console.log(mr.getGoal()); // 'Ouvrir pot de C'
+console.log(mr.getLifespan()); // 12
+```

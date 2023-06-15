@@ -1,0 +1,216 @@
+---
+title: Automatiser Ses Injections Avec Le DiscoveryModule De NestJs
+description: Voyons ensemble comment faciliter l'ajout de nouveaux service en automatisant nos injections.
+date: '2021-10-19'
+updated: '2021-10-19'
+categories: ['nest-js', 'backend']
+slug: dependency-injection-with-nest-js-discovery-module
+---
+
+Dans l'article précédent, une architecture à été proposée pour faciliter le développement et le maintient du webhook de notre chatbot (cf [Chatbot : Coder Proprement Un Webhook Avec NestJs](https://basile-mousketon.com/chatbot-coder-proprement-un-webhook-avec-nestjs/)).
+
+En partant de cette base, on va voir comment faciliter l'ajout de nouveaux handlers en automatisant nos injections.
+
+Pour le moment, pour charger les handlers dans le `DispatchService`, ce que nous faisons est d'injecter les handlers un à un et de les stocker dans la liste de handlers :
+
+```typescript
+@Injectable()
+export class DispatchService {
+  // Liste des handlers disponibles.
+  private handlers: ActionHandler[] = [];
+
+  // On injecte les handlers et on les stocke dans
+  // la liste de handlers.
+  constructor(
+    @InjectCreateDoerHandler createDoerHandler: CreateDoerHandler,
+    @InjectGetMissionHandler getMissionHandler: GetMissionHandler,
+  ) {
+    this.handlers = [createDoerHandler, getMissionHandler];
+  }
+
+  // ...
+}
+```
+
+Ça se fait, mais est-ce qu'il n'y aurait pas un moyen qui permettrait de le faire automatiquement pour ne pas [se casser la nénette](https://www.cnews.fr/culture/2013-02-13/pourquoi-dit-se-casser-la-nenette-381806) ? L'idée c'est de ne plus avoir à toucher la logique du `DispatchService` seulement pour ajouter un handler dans la liste. Par exemple, est-ce qu'il y'a moyen de charger les handlers automatiquement une fois qu'ils ont été ajoutés dans le module ?
+
+<Image src="/images/articles/anxious.gif" width={1200} height={630} className="mb-9" />
+
+_Aïe mais quel suspens, j'espère vraiment que l'auteur de l'article a une astuce pour ça sinon ça n'a aucun intérêt_ 😰
+
+Tkt frelot(te) à la compote, j'ai tout prévu.
+
+Commençons par
+
+## La découverte du `DiscoveryModule` de NestJs 🛰🔍
+
+Le `DiscoveryModule` fait partie du core package de NestJs. C'est le module qui permet au framework de trouver les bons services à injecter en se basant sur leurs metadata.
+
+Par exemple, NestJs sait qu'une classe est injectable grâce à l'annotation `@Injectable()`. En allant voir dans le code source, on s'aperçoit que ce décorateur ne fait qu'ajouter des metadata à la classe annotée :
+
+```typescript
+// Ça se code à une main.
+export function Injectable(options?: InjectableOptions): ClassDecorator {
+  return (target: object) => {
+    // NestJs se base sur la Metadata Reflection API
+    // pour ajouter des metadonnées à la classe
+    // qu'on veut rendre injectable.
+    Reflect.defineMetadata(SCOPE_OPTIONS_METADATA, options, target);
+  };
+}
+```
+
+Je rentre pas dans les détails de la Metadata Reflection API parce que ça ferait un article bien trop gros.
+
+Partant de là, on peut utiliser la même mécanique pour marquer les classes qui sont des handlers. Il suffit de leurs ajouter une metadata maison puis de les récupérer grâce au `DiscoveryService` et sa méthode `getProviders()`.
+
+### Aparté sur la méthode `getProviders()`
+
+Comme son nom l'indique, la méthode récupère l'ensemble des providers injectés dans l'application. Et elle fait ça sans distinction de module. ✊🏻✊🏼✊🏽✊🏾✊🏿
+
+Par exemple, si on considère les modules suivants :
+
+```typescript
+@Module({
+  providers: [ProviderA],
+})
+export class ModuleA {}
+```
+
+```typescript
+@Module({
+  providers: [ProviderB],
+})
+export class ModuleB {}
+```
+
+Et qu'on les injecte dans notre `AppModule` :
+
+```typescript
+@Module({
+  imports: [ModuleA, ModuleB],
+})
+export class AppModule {}
+```
+
+Même si `ProviderA` et `ProviderB` n'ont pas été exportés depuis leur module respectif, on les retrouvera quand même dans la liste de handlers retournée par la méthode `getProviders()`.
+
+Pour être précis, la méthode retourne une liste de `InstanceWrapper` qui possèdent 2 propriétés intéressantes :
+
+- `metatype` : contient les métadonnées de la classe providée. On va utiliser la Metadata Reflection API pour aller chercher la métadonnée qui nous intéresse.
+- `instance` : contient une instance de la classe providée. Dans notre cas, ça sera une instance de handler si le provider possède la bonne métadonnée.
+
+---
+
+Ceci étant dit, on peut faire une première ébauche pour trouver les providers qui sont des handlers en utilisant le `DiscoveryService` :
+
+```typescript
+@Injectable()
+export class DispatchService {
+  // Liste des handlers disponibles.
+  private handlers: ActionHandler[] = [];
+
+  // Le DiscoveryService de NestJs nous permet
+  // de trouver des services en se basant sur leurs
+  // metadata.
+  // Plus besoin d'injecter les handlers à la main.
+  constructor(private readonly discoverySvc: DiscoveryService) {}
+
+  // On cherche les handlers une fois que le
+  // ChatbotModule a été initialisé.
+  onModuleInit(): void {
+    this.discoverHandlers();
+  }
+
+  // Cherche les handlers grâce à leur metadata.
+  private discoverHandlers(): void {
+    this.handlers = this.discoverySvc
+      // On récupère la liste de l'ensemble des
+      // providers injectés dans l'application.
+      .getProviders()
+      // On ne garde que les providers qui
+      // possèdent la bonne metadata.
+      .filter(
+        wrapper =>
+          !!wrapper.metatype && !!Reflect.getMetadata(NOTRE_METADATA_MAISON, wrapper.metatype),
+      )
+      // Enfin, on récupère l'instance du provider.
+      .map((wrapper: InstanceWrapper<ActionHandler>) => wrapper.instance);
+  }
+
+  // ...
+}
+```
+
+## L'injection sans pression 💉🍻
+
+Maintenant qu'on a notre stratégie, on peut passer à l'implémentation.
+
+En reprenant la logique plus haut, on va commencer par créer notre propre décorateur pour injecter notre metadata maison :
+
+```typescript
+import { CustomDecorator, SetMetadata } from '@nestjs/common';
+
+// Notre metadata maison.
+export const ACTION_HANDLER_METADATA_KEY = 'CHATBOT_HANDLER';
+
+// Et notre décorateur maison qui se contente
+// d'associer un simple booléen à notre metadata.
+export const ActionHandlerDecorator = (): CustomDecorator =>
+  SetMetadata(ACTION_HANDLER_METADATA_KEY, true);
+```
+
+On peut ensuite l'appliquer à chacun de nos handlers.
+
+En reprenant ceux de [l'article précédent](https://basile-mousketon.com/chatbot-coder-proprement-un-webhook-avec-nestjs/), ça nous donne :
+
+```typescript
+@Injectable()
+@ActionHandlerDecorator()
+export class CreateDoerHandler {
+  // ...
+}
+```
+
+```typescript
+@Injectable()
+@ActionHandlerDecorator()
+export class GetMissionHandler {
+  // ...
+}
+```
+
+Il ne nous reste plus qu'à adapter le `DispatchService` pour filtrer les providers selon la bonne metadata :
+
+```typescript
+@Injectable()
+export class DispatchService {
+  // ...
+
+  // Cherche les handlers grâce à leur metadata.
+  private discoverHandlers(): void {
+    this.handlers = this.discoverySvc
+      .getProviders()
+      // On ne garde que les providers qui
+      // possèdent la bonne metadata.
+      .filter(
+        wrapper =>
+          !!wrapper.metatype &&
+          !!Reflect.getMetadata(ACTION_HANDLER_METADATA_KEY, wrapper.metatype),
+      )
+      .map((wrapper: InstanceWrapper<ActionHandler>) => wrapper.instance);
+  }
+}
+```
+
+## Épilogue
+
+Pour résumer, au lancement du programme, le `DispatchService` va parcourir l'ensemble des providers répertoriés dans l'application pour ne garder que ceux qui ont notre metadata maison `ACTION_HANDLER_METADATA_KEY` et les stocker dans sa liste de handlers.
+
+Créer un nouveau handler est maintenant plus simple que jamais : il suffit de
+
+1. Créer une nouvelle classe injectable.
+2. Annoter la classe avec notre décorateur `ActionHandlerDecorator`.
+3. Ajouter la classe dans les providers de notre application.
+
+Le `DispatchService` se charge du reste, sans qu'on ait à le modifier.

@@ -1,0 +1,91 @@
+---
+title: 'Strapi And Database Transactions: The Right Way'
+description: Understand why baby typescript is whining and give him a pacifier to make him feel at peace.
+date: '2022-05-18'
+update: '2022-05-18'
+categories: ['backend']
+slug: strapi-database-transactions-the-right-way
+---
+
+## TLDR
+
+> When using database transactions with Strapi, use the query API, NOT the services API.
+
+## Explaination
+
+I started using Strapi few month ago to code our backend at [Burrowvest.com](https://burrowvest.com/), a platform we built with my cofounder to buy slices of high yield Real Estate in 3 clics.
+
+Strapi is a headless CMS developed by the eponymous French company that offers an easy-to-use API on top of Koa. It's plugin system makes development fast as it proposes an admin interface out-of-the-box, a customizable file upload system and a straight-forward database configuration (among others). The main drawback to me was the lack of support of typescript since I got used to it for some years now. Static typing systems efficiency to catch bugs before deployment has been proven over the past decades and was essential to me. But I still decided to give Strapi a try to expand my horizon beyond Express, Koa and Nestjs.
+
+I have to say, coming from Nestjs, Strapi is a breath of fresh air. I felt freed from the strong opinionated architecture principles of Nestjs and rediscovered the joy of developing with bare simple JavaScript. With good practices and project configuration, it is possible to write scalable JavaScript application. Strapi is still under intense development and a first typescript support has been announced with version 4.0.2. It sounds promising and I will pay close attention to it.
+
+That being said, with `version 3.6.8`, I ran into an issue when developing our system at [Burrowvest.com](https://burrowvest.com/). To ensure the integrity of our data, our endpoint to buy slices of Real Estate is implemented using database transactions. If an issue occurs during the sell, the transaction is rolled back and our system stays in a consistent state. Since we use a Postgres database, database transactions are usable. At first we implemented them this way:
+
+```javascript
+const buySlices = async ctx => {
+  //...
+
+  // Create a database transaction.
+  const trx = await strapi.connections.default.transaction();
+
+  try {
+    // Create a transaction for the user to buy slices of Real Estate.
+    const transaction = await strapi.services['transactions'].create(
+      { buyer: user.id /** ... */ },
+      // Have the query be part of a database transaction.
+      { transacting: trx },
+    );
+
+    // The database transaction is committed when the program runs as expected.
+    await trx.commit();
+  } catch (err) {
+    // The database transaction is rolled back if an error occured.
+    await trx.rollback();
+  }
+
+  //...
+};
+
+module.exports = buySlices;
+```
+
+The Strapi `services` API offers a simple way to query the database in a transaction manner.
+
+But during testing, it didn't work as expected. When an issue occured, the database transaction wasn't rolled back. The data stayed in an inconsistent state as if the database transaction wasn't even taken into account. By digging into Strapi's implementation, I found the cause of the issue:
+
+```javascript
+// Query API
+// The query API takes a second parameter for database
+// transactions.
+async function create(attributes, { transacting } = {}) {
+  //...
+}
+
+// Services API
+// The services API calls the query API under the hood
+// but the second parameter is not passed along when a
+// query is made using this API.
+async create(opts, { model }) {
+  //...
+
+  let entry = await db.query(model).create(validData);
+
+  //...
+}
+```
+
+When querying the database with the `services` API, Strapi calls the `query` API under the hood but doesn't pass all the parameters down. The database transaction gets lost and the query is actually made instead of awaiting to be committed. So I used the `query` API directly instead:
+
+```javascript
+// Create a transaction for the user to buy slices of Real Estate.
+// Use the query API.
+const transaction = await strapi.query('transactions').create(
+  { buyer: user.id /** ... */ },
+  // Have the query be part of a database transaction.
+  { transacting: trx },
+);
+```
+
+And it worked as expected. The fire was extinguished, at least for now.
+
+Strapi lets developers query the database using the `query` and `services` APIs, but the `services` API is incomplete. That is misleading and error prone, and it won't be long since a developer introduces the bug again. I want developers to be enforced to use the `query` API when they need to query the database. Since I can't rely on typescript, I will explain in another blogpost how I made use of the eslint rule `no-restricted-syntax` to tackle the issue once for all.

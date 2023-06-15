@@ -1,0 +1,299 @@
+---
+title: 'Chatbot : Coder Proprement Un Webhook Avec NestJs'
+description: Mettons en place une architecture propre pour faciliter le développement d'un chatbot et sa maintenabilité.
+date: '2021-07-31'
+update: '2021-07-31'
+categories: ['backend', 'design-pattern', 'nest-js']
+slug: clean-architecture-chatbot-webhook
+---
+
+À [Hello Doe](https://hellodoe.co/), on a pour mission d'aider les étudiants à trouver des jobs pendant leurs études. On démarche les entreprises, on obtient des missions qu'on poste sur les [réseaux sociaux](https://www.instagram.com/hellodoe_/) et les doers (les étudiants) postulent en un clic depuis [notre chatbot](https://www.messenger.com/t/282545635647987) sur Facebook Messenger.
+
+Le chatbot nous permet de proposer un système sans friction aux doers qui n'ont pas besoin de télécharger d'application supplémentatire pour accéder aux missions et à leur candidature.
+
+L'ajout de nouvelles fonctionnalités et la croissance de l'équipe tech a nécessité de revoir l'implémentation de notre webhook avec pour objectifs :
+
+- Garantir la lisibilité du code.
+- Permettre la maintenabilité et la testabilité.
+- Respecter l'Open/Close Principle.
+- Élaborer une architecture qui parle d'elle même pour faciliter sa compréhension.
+
+Je vais décrire notre solution en me focalisant sur l'architecture du code uniquement, sans décrire le fonctionnement d'un chatbot et la manière dont s'interface un webhook avec une plateforme pour créer un chatbot.
+
+Ceci étant dit, on peut commencer sans plus attendre par
+
+## Un Aller Simple Droit Dans Le Mur 🧱🏃
+
+La façon la plus simple de coder le webhook est d'écrire tous les handlers dans un seul et même fichier. De cette manière ils sont centralisés et n'importe quel dev sait où aller quand il s'agit d'y toucher.
+
+Ça pourrait ressembler à ça :
+
+```typescript
+@Injectable()
+export class Handler {
+  constructor(
+    @InjectUserRepository private readonly userRepo: UserRepositiry,
+    @InjectMissionRepository private readonly missionRepo: MissionRepository,
+  ) {}
+
+  // La méthode reçoit la requête de la plateforme
+  // de chatbot et la transforme en une action
+  // qu'elle traite.
+  public async handle(request: RequestBody): Promise<void> {
+    const action = this.createAction(request);
+
+    await this.handleAction(action);
+  }
+
+  // handleAction s'occupe de traiter l'action
+  public async handleAction(action: Action): Promise<void> {
+    // Selon l'action déclénchée par le doer on branche
+    // sur telle ou telle méthode.
+    // Ici on va s'occuper de créer un nouveau doer.
+    if (action.getName() === ActionNames.CREATE_DOER) {
+      await this.createDoer(action);
+      // Et là on va récupérer une mission en base pour
+      // la retourner au doer.
+    } else if (action.getName() === ActionNames.GET_MISSION) {
+      await this.getMission(action);
+    }
+  }
+
+  // Crée un nouveau doer en base de données.
+  public async createDoer(action: Action): Promise<void> {
+    const username = action.getParameter('username');
+
+    if (!username) {
+      throw new Error(`Missing parameter username`);
+    }
+
+    await this.userRepo.create(username);
+  }
+
+  // Cherche une mission et la retourne au doer.
+  public async getMission(action: Action): Promise<void> {
+    const missionId = action.getParameter('missionId');
+
+    if (!missionId) {
+      throw new Error(`Missing parameter missionId`);
+    }
+
+    const mission = await this.missionRepo.findById(missionId);
+
+    if (mission) {
+      action.addMessage(`Voilà ta mission servie sur un plateau 🍽️`);
+      action.addMessage(`${mission.company} recrute pour sa mission de ${mission.category}`);
+    } else {
+      action.addMessage(`Nous n'avons pas trouvé la mission que tu cherches`);
+      action.addMessage(`On te présente les missions du moment ?`, `Oui`, `Non`);
+    }
+  }
+
+  // Crée l'action à partir de la requête du chatbot.
+  private createAction(request: RequestBody): Action {
+    // Extraction des paramètres depuis la requête et
+    // création de l'action.
+    // ...
+
+    return action;
+  }
+}
+```
+
+J'ai volontairement chargé l'exemple pour me rapprocher d'un webhook réaliste.
+
+Ici notre webhook gère 2 actions :
+
+- `ActionNames.CREATE_DOER` : le chatbot demande au webhook de créer un nouvel utilisateur en base de données.
+- `ActionNames.GET_MISSION` : le chatbot demande à récupérer une mission en base pour l'afficher sur Facebook Messenger.
+
+Des sous-fonctions `createDoer` et `getMission` ont été créées pour soulager la fonction `handleAction` qui s'occupe de dispatcher l'action.
+
+Ce qu'on sent déjà, c'est que même si le code est centralisé on va vite ramasser nos dents 🦷 Pour le moment on n'a que deux actions gérées mais on va vite commencer à avoir de la misère à lire le fichier. On va se retrouver avec une classe qui gère toutes les actions de notre chatbot dont les effets et les dépendances sont différents.
+
+Par exemple, le `UserRepository` est pertinent quand on veut créer un nouveau doer avec l'action `ActionNames.CREATE_DOER`, mais ne l'est plus quand on veut récupérer une mission. Notre classe `Handler` va rapidement perdre en cohésion.
+
+Et puis comment ça se teste ? De la même manière, ça va donner un énorme fichier fourre-tout. Sans parler des régressions éventuelles dues au fait qu'un(e) dev touchera à du code partagé par plusieurs fonctionnalités.
+
+L'enfer.
+
+<Image src="/images/articles/sponge-bob-smelly.gif" width={1200} height={630} className="mb-9" />
+
+## La Consultation Chez Le Dentiste 🩺🍓
+
+Les problèmes mentionnés plus haut viennent du fait que tous les handlers sont écrits dans un seul et même fichier.
+
+En mettant à plat les dépendances, on obtient le graphe suivant :
+
+<Image src="/images/articles/webhook-rotten-1.png" width={1200} height={630} className="mb-9" />
+
+Carie en cours de formation
+
+Alors que si on place chaque handler dans son propre fichier, ça règle pas mal de problèmes. Ça donnerait le schéma suivant :
+
+<Image src="/images/articles/webhook-clean.png" width={1200} height={630} className="mb-9" />
+
+Dentition saine
+
+Un telle architecture permettrait de :
+
+- Gérer une nouvelle action facilement : il suffit de créer un nouveau handler dans un fichier dédié et c'est plié.
+- Tester : de nouveau on a un fichier de test par handler et seules les dépendances du handler en question sont à mocker.
+- Améliorer la lisibilité : on se retrouve avec plusieurs fichiers de 100 lignes plutôt qu'un fichier de 1000.
+
+Avec ça le webhook sera ouvert à l'extension et fermé à la modification. Et ça, ça me botte.
+
+## Un Bon Coup De Brosse À Dents 🪥✨
+
+Passons à l'implémentation en commençant par définir l'interface `ActionHandler` que vont implémenter les handlers :
+
+```typescript
+export interface ActionHandler {
+  // Indique si le ActionHandler prend
+  // en charge l'action.
+  canHandle: (action: Action) => boolean;
+
+  // Prend en charge l'action.
+  // La méthode prend une action déjà créée au
+  // lieu de la créer lui même.
+  handle: (action: Action) => Promise<void>;
+}
+```
+
+L'idée est que quand on reçoit une action depuis le chatbot, on parcourt chacun des `ActionHandler` jusqu'à en trouver un qui prenne en charge l'action.
+
+Plaçons nos 2 `ActionHandler` dans leur propre fichier :
+
+```typescript
+@Injectable()
+export class CreateDoerHandler {
+  constructor(@InjectUserRepository private readonly userRepo: UserRepositiry) {}
+
+  // L'action est prise en charge si son nom est
+  // ActionNames.CREATE_DOER.
+  public canHandle(action: Action): boolean {
+    return action.getName() === ActionNames.CREATE_DOER;
+  }
+
+  // Prend en charge l'action de création d'un
+  // nouveau doer.
+  public async handler(action: Action): Promise<void> {
+    const username = action.getParameter('username');
+
+    if (!username) {
+      throw new Error(`Missing parameter username`);
+    }
+
+    await this.userRepo.create(username);
+  }
+}
+```
+
+```typescript
+@Injectable()
+export class GetMissionHandler {
+  constructor(@InjectMissionRepository private readonly missionRepo: MissionRepository) {}
+
+  // Ici l'action est prise en charge si son nom est
+  // ActionNames.GET_MISSION.
+  public canHandle(action: Action): boolean {
+    return action.getName() === ActionNames.GET_MISSION;
+  }
+
+  // Cherche une mission en base et la retourne au doer.
+  public async handle(action: Action): Promise<void> {
+    const missionId = action.getParameter('missionId');
+
+    if (!missionId) {
+      throw new Error(`Missing parameter missionId`);
+    }
+
+    const mission = await this.missionRepo.findById(missionId);
+
+    if (mission) {
+      action.addMessage(`Voilà ta mission servie sur un plateau 🍽️`);
+      action.addMessage(`${mission.company} recrute pour sa mission de ${mission.category}`);
+    } else {
+      action.addMessage(`Nous n'avons pas trouvé la mission que tu cherches`);
+      action.addMessage(`On te présente les missions du moment ?`, `Oui`, `Non`);
+    }
+  }
+}
+```
+
+C'est déjà bien plus lisible. Côté testabilité c'est bien aussi puisque chaque `ActionHandler` n'a comme services injectés que ceux dont il a réellement besoin. L'idée étant la même pour les fichiers de test, je m'attarde pas sur leur implémentation.
+
+Ensuite, on va avoir besoin du `DispatchService`. Son rôle est de construire l'action depuis la requête du chatbot et de sélectionner le bon handler pour la gérer. Son code est le suivant :
+
+```typescript
+@Injectable()
+export class DispatchService {
+  // Liste des handlers disponibles.
+  private handlers: ActionHandler[] = [];
+
+  // On injecte les handlers et on les stockes dans
+  // la liste de handlers.
+  constructor(
+    @InjectCreateDoerHandler createDoerHandler: CreateDoerHandler,
+    @InjectGetMissionHandler getMissionHandler: GetMissionHandler,
+  ) {
+    this.handlers = [createDoerHandler, getMissionHandler];
+  }
+
+  // Sélectionne le bon handler capable de traiter
+  // l'action.
+  public async dispatchAction(request: RequestBody): Promise<void> {
+    // Création de l'action.
+    const action = this.createAction(request);
+
+    // On manipule un ActionHandler pour s'abstraire
+    // des implémentations concrètes des handlers.
+    const handler: ActionHandler = this.getHandler(action);
+
+    // On retrouve notre méthode handle.
+    await handler.handle(action);
+  }
+
+  public getHandler(action: Action): ActionHandler {
+    for (const handler of this.handlers) {
+      // On retrouve notre méthode canHandle.
+      if (handler.canHandle(action)) {
+        return handler;
+      }
+    }
+
+    // Si on n'a pas trouvé de handler, c'est que le
+    // chatbot déclenche une action qui n'est pas
+    // gérée par l'api. On lève une erreur car on ne
+    // peut pas aller plus loin.
+    throw new Error(`No handler found to handle action ${action.getName()}`);
+  }
+
+  // On retrouve notre logique qui crée une action
+  // à partir d'une requête web.
+  private createAction(request: RequestBody): Action {
+    // Extraction des paramètres de la requête et
+    // création de l'action.
+    // ...
+
+    return action;
+  }
+}
+```
+
+Le `DispatchService` a simplement à être branché à l'entrée de notre api, on passe la requête à la méthode `dispatchAction` et le tour est joué 👌 L'avantage c'est qu'une fois cette logique mise en place, on n'a plus besoin d'y toucher. On vient de séparer ce qui change (la gestion des actions par les `ActionHandler`) de ce qui ne change pas (la sélection du bon handler par le `DispatchService`), et ça c'est gourmand 🍰
+
+## Épilogue
+
+On vient de s'offrir une belle dentition avec cette nouvelle architecture en plus d'atteindre les objectifs qu'on s'était fixé, à savoir :
+
+- Garantir la lisibilité du code
+- Permettre la maintenabilité et la testabilité
+- Respecter l'Open/Close Principle
+- Élaborer une architecture qui parle d'elle même pour faciliter sa compréhension
+
+Je vois 2 points principaux à améliorer :
+
+Le premier est le chargement fastidieux des handlers : pour chaque nouveaux handlers, il faut penser à l'ajouter dans le module NestJs ET dans le `DispatchService`. On verra dans un prochain article comment s'affranchir de cette contrainte.
+
+Le deuxième serait de déplacer la construction de l'action dans un service dédié plutôt que de le faire dans le `DispatchService`. Ce nouveau service recevrait la requête du chatbot puis construirait une action qu'il passerait au `DispatchService`. De cette manière, le `DispatchService` s'occuperait seulement de sélectionner le bon handler. La logique de création de l'action étant dépendante de la structure de la requête http et donc de la plateforme de chatbot utilisée, on poserait la seconde brique d'un système qui protégerait notre logique métier d'une interface sur laquelle on n'a pas la main. La première étant la création de l'interface `Action` qu'on a utilisée tout au long de l'article.
