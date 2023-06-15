@@ -8,7 +8,9 @@ import { ListArticleProps } from '@components/Block/List/Article';
 export const ListArticle: FunctionComponent<ListArticleProps> = ({ data, limit }) => {
   const articlesMetadata = getArticlesMetadata(limit);
 
-  if (!data || !articlesMetadata.length) return null;
+  if (!data || !articlesMetadata.length) {
+    return null;
+  }
 
   return (
     <Section>

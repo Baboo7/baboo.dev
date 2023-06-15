@@ -63,7 +63,7 @@ export const CodeBlock: FunctionComponent<CodeBlockProps> = ({ children, classNa
             {tokens.map((line, i) => (
               <div {...getLineProps({ line, className: 'flex' })} key={i}>
                 <div
-                  className="w-10 flex-shrink-0 select-none text-[8px] text-editor-line-light dark:text-editor-line-dark"
+                  className="flex w-10 flex-shrink-0 select-none items-center text-[8px] text-editor-line-light dark:text-editor-line-dark"
                   key={i}
                 >
                   {i + 1}
@@ -76,7 +76,7 @@ export const CodeBlock: FunctionComponent<CodeBlockProps> = ({ children, classNa
           </pre>
         )}
       </Highlight>
-      <ButtonControl onClick={() => copyToClipboard(code)} className="absolute top-4 right-4">
+      <ButtonControl onClick={() => copyToClipboard(code)} className="absolute right-4 top-4">
         <CopyClipboardIcon copied={copied} />
       </ButtonControl>
     </div>

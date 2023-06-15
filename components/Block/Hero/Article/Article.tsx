@@ -5,6 +5,7 @@ import { ArrowLeftIcon } from '@heroicons/react/24/solid';
 import { Heading, Text } from '@components/Typography';
 import readingTime from 'reading-time';
 import { HeroArticleProps } from '@components/Block/Hero/Article/Article.types';
+import { formatDate } from '@lib/common';
 
 export const HeroArticle: FunctionComponent<HeroArticleProps> = ({ data: article }) => {
   const router = useRouter();
@@ -20,12 +21,7 @@ export const HeroArticle: FunctionComponent<HeroArticleProps> = ({ data: article
         {article.meta.title}
       </Heading>
       <Text size="sm" className="text-gray-500 dark:!text-gray-400">
-        {time.text} /{' '}
-        {new Date(article.meta.date).toLocaleDateString('en-EN', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-        })}
+        {time.text} / {formatDate(article.meta.date)}
       </Text>
     </div>
   );
